@@ -1541,8 +1541,8 @@ function buildRecentActivityItems() {
 const qrcode = require("qrcode-terminal");
 const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 
-// "0369" => 369. Allow overriding via PORT env var.
-const PORT = Number(process.env.PORT ?? 369);
+// "1369" => 1369. Allow overriding via PORT env var.
+const PORT = Number(process.env.PORT ?? 1369);
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 
