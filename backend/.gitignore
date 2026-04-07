@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# WhatsApp Web.js session / cache (LocalAuth)
+.wwebjs_auth/
+.wwebjs_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Optional tooling
+coverage/
+.nyc_output/
+
+
+# data
+data
