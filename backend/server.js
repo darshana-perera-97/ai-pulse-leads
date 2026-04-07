@@ -1581,9 +1581,18 @@ function resolveChromeExecutable() {
     return null;
 }
 
+const isLinux = process.platform === "linux";
 const puppeteerOptions = { headless: true };
 const chromeExecutablePath = resolveChromeExecutable();
 if (chromeExecutablePath) puppeteerOptions.executablePath = chromeExecutablePath;
+if (isLinux) {
+    // Ubuntu/AppArmor environments often block Chromium sandbox in server contexts.
+    puppeteerOptions.args = [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+    ];
+}
 
 const whatsappClient = new Client({
     authStrategy: new LocalAuth({
