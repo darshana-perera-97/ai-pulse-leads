@@ -1932,14 +1932,13 @@ const server = http.createServer((req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/") {
+        if (fs.existsSync(FRONTEND_INDEX_FILE)) {
+            res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+            res.end(fs.readFileSync(FRONTEND_INDEX_FILE, "utf8"));
+            return;
+        }
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(
-            JSON.stringify({
-                ok: true,
-                message: "Backend server is running",
-                port: PORT,
-            })
-        );
+        res.end(JSON.stringify({ ok: true, message: "Backend server is running", port: PORT }));
         return;
     }
 
