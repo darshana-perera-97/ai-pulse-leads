@@ -1735,6 +1735,20 @@ function isRetriableWhatsAppSendError(err) {
 }
 
 /**
+ * Errors that indicate WA web context/session is not usable right now.
+ * @param {unknown} err
+ */
+function isWhatsAppSessionContextError(err) {
+    const msg = String(err?.message ?? err ?? "").toLowerCase();
+    return (
+        msg.includes("widfactory") ||
+        msg.includes("getchat") ||
+        msg.includes("execution context was destroyed") ||
+        msg.includes("cannot find context with specified id")
+    );
+}
+
+/**
  * Fire-and-forget WhatsApp send for a campaign (same as POST …/send-whatsapp).
  * @param {string} campaignId
  */
@@ -1791,7 +1805,15 @@ async function runCampaignWhatsAppSendBackground(campaignId) {
         );
         let successInLoop = 0;
 
+        let abortLoop = false;
         for (let i = 0; i < withPhone.length; i++) {
+            if (abortLoop) break;
+            if (whatsappState.state !== "ready") {
+                console.error(
+                    `[whatsapp-send] stopping campaign=${campaignId}; WhatsApp state=${whatsappState.state}`
+                );
+                break;
+            }
             const lead = withPhone[i];
             const chatId = toWhatsAppChatId(lead.contactNumber);
             if (!chatId) continue;
@@ -1805,6 +1827,13 @@ async function runCampaignWhatsAppSendBackground(campaignId) {
                         isRegistered = Boolean(await whatsappClient.isRegisteredUser(chatId));
                     }
                 } catch (e) {
+                    if (isWhatsAppSessionContextError(e)) {
+                        console.error(
+                            `[whatsapp-send] WA context unavailable during registration check; aborting pass campaign=${campaignId}`
+                        );
+                        abortLoop = true;
+                        break;
+                    }
                     // If lookup fails, continue and let send attempt decide.
                     console.warn(
                         `[whatsapp-send] registration check failed ${chatId}: ${String(e?.message ?? e)}`
@@ -1858,6 +1887,12 @@ async function runCampaignWhatsAppSendBackground(campaignId) {
                     `[whatsapp-send] ${chatId}`,
                     sendError?.message ? String(sendError.message) : sendError
                 );
+                if (isWhatsAppSessionContextError(sendError)) {
+                    console.error(
+                        `[whatsapp-send] WA context unavailable during send; aborting remaining contacts campaign=${campaignId}`
+                    );
+                    abortLoop = true;
+                }
             }
             if (delivered) {
                 appendMessageSendLogEntry({
