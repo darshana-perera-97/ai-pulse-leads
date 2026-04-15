@@ -1721,6 +1721,20 @@ function phoneFromWhatsAppChatId(chatId) {
 }
 
 /**
+ * @param {unknown} err
+ */
+function isRetriableWhatsAppSendError(err) {
+    const msg = String(err?.message ?? err ?? "").toLowerCase();
+    return (
+        msg.includes("getchat") ||
+        msg.includes("no lid for user") ||
+        msg.includes("wid error") ||
+        msg.includes("evaluation failed") ||
+        msg.includes("execution context")
+    );
+}
+
+/**
  * Fire-and-forget WhatsApp send for a campaign (same as POST …/send-whatsapp).
  * @param {string} campaignId
  */
@@ -1783,25 +1797,67 @@ async function runCampaignWhatsAppSendBackground(campaignId) {
             if (!chatId) continue;
             /** @type {boolean} */
             let delivered = false;
+            let sendError = null;
             try {
-                if (msg.imageFile) {
-                    const assetPath = path.join(MESSAGES_ASSETS_DIR, msg.imageFile);
-                    if (fs.existsSync(assetPath)) {
-                        const media = MessageMedia.fromFilePath(assetPath);
-                        await whatsappClient.sendMessage(chatId, media, {
-                            caption: String(msg.text ?? "").trim() || undefined,
-                        });
-                        delivered = true;
-                    } else if (String(msg.text ?? "").trim()) {
-                        await whatsappClient.sendMessage(chatId, String(msg.text).trim());
-                        delivered = true;
+                let isRegistered = true;
+                try {
+                    if (typeof whatsappClient.isRegisteredUser === "function") {
+                        isRegistered = Boolean(await whatsappClient.isRegisteredUser(chatId));
                     }
-                } else if (String(msg.text ?? "").trim()) {
-                    await whatsappClient.sendMessage(chatId, String(msg.text).trim());
-                    delivered = true;
+                } catch (e) {
+                    // If lookup fails, continue and let send attempt decide.
+                    console.warn(
+                        `[whatsapp-send] registration check failed ${chatId}: ${String(e?.message ?? e)}`
+                    );
+                }
+                if (!isRegistered) {
+                    console.warn(`[whatsapp-send] skip unregistered number ${chatId}`);
+                    continue;
+                }
+
+                const trySend = async () => {
+                    if (msg.imageFile) {
+                        const assetPath = path.join(MESSAGES_ASSETS_DIR, msg.imageFile);
+                        if (fs.existsSync(assetPath)) {
+                            const media = MessageMedia.fromFilePath(assetPath);
+                            await whatsappClient.sendMessage(chatId, media, {
+                                caption: String(msg.text ?? "").trim() || undefined,
+                            });
+                            return true;
+                        }
+                        if (String(msg.text ?? "").trim()) {
+                            await whatsappClient.sendMessage(chatId, String(msg.text).trim());
+                            return true;
+                        }
+                        return false;
+                    }
+                    if (String(msg.text ?? "").trim()) {
+                        await whatsappClient.sendMessage(chatId, String(msg.text).trim());
+                        return true;
+                    }
+                    return false;
+                };
+
+                try {
+                    delivered = await trySend();
+                } catch (firstErr) {
+                    sendError = firstErr;
+                    if (isRetriableWhatsAppSendError(firstErr)) {
+                        await whatsappThrottle.sleep(1500);
+                        delivered = await trySend();
+                        sendError = null;
+                    } else {
+                        throw firstErr;
+                    }
                 }
             } catch (e) {
-                console.error(`[whatsapp-send] ${chatId}`, e?.message ? String(e.message) : e);
+                sendError = e;
+            }
+            if (sendError) {
+                console.error(
+                    `[whatsapp-send] ${chatId}`,
+                    sendError?.message ? String(sendError.message) : sendError
+                );
             }
             if (delivered) {
                 appendMessageSendLogEntry({
