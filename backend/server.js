@@ -3039,7 +3039,7 @@ const server = http.createServer((req, res) => {
             url.pathname.startsWith("/saved-leads") ||
             url.pathname.startsWith("/categories") ||
             url.pathname.startsWith("/whatsapp") ||
-            url.pathname.startsWith("/dashboard") ||
+            url.pathname === "/dashboard/rail-stats" ||
             url.pathname.startsWith("/analytics") ||
             url.pathname.startsWith("/leads") ||
             url.pathname.startsWith("/profile") ||
