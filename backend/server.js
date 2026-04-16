@@ -1548,6 +1548,9 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 
 /** @type {{ state: string, qr?: string, message?: string, reason?: string, info?: { wid?: string, pushname?: string, platform?: string } }} */
 let whatsappState = { state: "initializing" };
+let whatsappInitializing = false;
+let whatsappReconnectAttempts = 0;
+let whatsappReconnectTimer = null;
 
 function emptyEmailIntegration() {
     return {
@@ -1602,6 +1605,61 @@ const whatsappClient = new Client({
     puppeteer: puppeteerOptions,
 });
 
+function clearWhatsAppReconnectTimer() {
+    if (whatsappReconnectTimer) {
+        clearTimeout(whatsappReconnectTimer);
+        whatsappReconnectTimer = null;
+    }
+}
+
+function scheduleWhatsAppReconnect(reasonText) {
+    clearWhatsAppReconnectTimer();
+    const attempt = Math.min(whatsappReconnectAttempts + 1, 8);
+    whatsappReconnectAttempts = attempt;
+    const delayMs = Math.min(60000, 1500 * Math.pow(2, attempt - 1));
+    console.log(
+        `[whatsapp] scheduling reconnect in ${Math.round(delayMs / 1000)}s (attempt ${attempt}) reason=${String(
+            reasonText || "unknown"
+        )}`
+    );
+    whatsappReconnectTimer = setTimeout(() => {
+        whatsappReconnectTimer = null;
+        initializeWhatsAppClient("scheduled_reconnect");
+    }, delayMs);
+}
+
+function isTransientWhatsAppInitError(err) {
+    const msg = String(err?.message ?? err ?? "").toLowerCase();
+    return (
+        msg.includes("execution context was destroyed") ||
+        msg.includes("target closed") ||
+        msg.includes("session closed") ||
+        msg.includes("navigation")
+    );
+}
+
+function initializeWhatsAppClient(source = "startup") {
+    if (whatsappInitializing) {
+        console.log(`[whatsapp] initialize skipped; already in progress (source=${source})`);
+        return;
+    }
+    whatsappInitializing = true;
+    console.log(`[whatsapp] initialize start (source=${source})`);
+    whatsappClient
+        .initialize()
+        .catch((err) => {
+            const message = err?.message ? String(err.message) : String(err);
+            whatsappState = { state: "init_error", message };
+            console.error("Failed to initialize WhatsApp client:", err);
+            if (isTransientWhatsAppInitError(err)) {
+                scheduleWhatsAppReconnect(message);
+            }
+        })
+        .finally(() => {
+            whatsappInitializing = false;
+        });
+}
+
 whatsappClient.on("qr", (qr) => {
     whatsappState = { state: "qr", qr };
     console.log("Scan the WhatsApp QR (terminal):");
@@ -1628,11 +1686,15 @@ whatsappClient.on("ready", () => {
         // ignore
     }
     whatsappState = { state: "ready", info: infoPayload };
+    whatsappReconnectAttempts = 0;
+    clearWhatsAppReconnectTimer();
     console.log("WhatsApp client is ready");
 });
 
 whatsappClient.on("authenticated", () => {
     whatsappState = { state: "authenticated" };
+    whatsappReconnectAttempts = 0;
+    clearWhatsAppReconnectTimer();
     console.log("WhatsApp authenticated");
 });
 
@@ -1642,8 +1704,15 @@ whatsappClient.on("auth_failure", (msg) => {
 });
 
 whatsappClient.on("disconnected", (reason) => {
-    whatsappState = { state: "disconnected", reason: String(reason) };
-    console.log("WhatsApp disconnected:", reason);
+    const reasonText = String(reason);
+    whatsappState = { state: "disconnected", reason: reasonText };
+    console.log("WhatsApp disconnected:", reasonText);
+    if (reasonText.toUpperCase() === "LOGOUT") {
+        clearWhatsAppReconnectTimer();
+        whatsappReconnectAttempts = 0;
+        return;
+    }
+    scheduleWhatsAppReconnect(reasonText);
 });
 
 whatsappClient.on("message", (msg) => {
@@ -1681,10 +1750,7 @@ whatsappClient.on("message", (msg) => {
     }
 });
 
-whatsappClient.initialize().catch((err) => {
-    whatsappState = { state: "init_error", message: err?.message ? String(err.message) : String(err) };
-    console.error("Failed to initialize WhatsApp client:", err);
-});
+initializeWhatsAppClient("startup");
 
 const campaignWhatsAppSendLocks = new Set();
 
