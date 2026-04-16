@@ -463,6 +463,57 @@ function appendSavedLeadsFile(newEntries) {
     fs.writeFileSync(SAVED_LEADS_FILE, JSON.stringify(merged, null, 2), "utf8");
 }
 
+function normalizeLeadName(raw) {
+    return String(raw ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+}
+
+function normalizeLeadEmail(raw) {
+    return String(raw ?? "").trim().toLowerCase();
+}
+
+function normalizeLeadPhone(raw) {
+    return String(raw ?? "").replace(/\D/g, "");
+}
+
+/**
+ * Excludes search rows that already exist in savedLeads.json
+ * Match priority:
+ * 1) phone (digits-only)
+ * 2) email (lowercase)
+ * 3) business name (normalized)
+ * @param {{ businessName: string, phone: string, email: string, address: string, website: string }[]} rows
+ */
+function filterOutAlreadySavedLeads(rows) {
+    const saved = readSavedLeadsFile();
+    const savedPhones = new Set();
+    const savedEmails = new Set();
+    const savedNames = new Set();
+
+    for (const item of saved) {
+        if (!item || typeof item !== "object") continue;
+        const o = /** @type {Record<string, unknown>} */ (item);
+        const phone = normalizeLeadPhone(o.contactNumber ?? o.phone ?? "");
+        const email = normalizeLeadEmail(o.email ?? "");
+        const name = normalizeLeadName(o.companyName ?? o.businessName ?? "");
+        if (phone) savedPhones.add(phone);
+        if (email) savedEmails.add(email);
+        if (name) savedNames.add(name);
+    }
+
+    return rows.filter((row) => {
+        const phone = normalizeLeadPhone(row.phone);
+        if (phone && savedPhones.has(phone)) return false;
+        const email = normalizeLeadEmail(row.email);
+        if (email && savedEmails.has(email)) return false;
+        const name = normalizeLeadName(row.businessName);
+        if (name && savedNames.has(name)) return false;
+        return true;
+    });
+}
+
 /**
  * @param {string} raw
  */
@@ -3017,11 +3068,12 @@ const server = http.createServer((req, res) => {
 
     if (req.method === "GET" && url.pathname === "/search/last") {
         const { results, searchPhrase, country } = readLastSearchFile();
+        const visibleResults = filterOutAlreadySavedLeads(results);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
             JSON.stringify({
                 ok: true,
-                results,
+                results: visibleResults,
                 searchPhrase,
                 country,
             })
@@ -3150,12 +3202,19 @@ const server = http.createServer((req, res) => {
                     console.log(
                         `[search/places] done pagesFetched=${pagesFetched} uniqueResults=${merged.length} stop=${stopReason || "complete"}`
                     );
+                    const visibleResults = filterOutAlreadySavedLeads(merged);
+                    const filteredOut = merged.length - visibleResults.length;
+                    if (filteredOut > 0) {
+                        console.log(
+                            `[search/places] hidden already-saved leads=${filteredOut} shown=${visibleResults.length}`
+                        );
+                    }
 
                     try {
-                        saveLastSearchFile(q, gl, merged);
-                        appendSearchHistory(q, gl, merged.length, pagesFetched);
+                        saveLastSearchFile(q, gl, visibleResults);
+                        appendSearchHistory(q, gl, visibleResults.length, pagesFetched);
                         console.log(
-                            `[search/places] saved ${merged.length} row(s) → ${path.relative(__dirname, LAST_SEARCH_FILE)}`
+                            `[search/places] saved ${visibleResults.length} row(s) → ${path.relative(__dirname, LAST_SEARCH_FILE)}`
                         );
                     } catch (writeErr) {
                         console.error("[search/places] failed to write lastSearch.json", writeErr);
@@ -3169,7 +3228,7 @@ const server = http.createServer((req, res) => {
                             gl,
                             pagesFetched,
                             maxPages,
-                            results: merged,
+                            results: visibleResults,
                         })
                     );
                 } catch (err) {
