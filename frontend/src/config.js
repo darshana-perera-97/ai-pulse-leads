@@ -6,5 +6,6 @@
  *
  * To use Create React App dev proxy instead (package.json "proxy"), set to ''.
  */
-export const API_BASE_URL = 'http://69.197.187.24:1369';
+export const API_BASE_URL = 'http://93.127.129.102:1369';
+// export const API_BASE_URL = 'http://69.197.187.24:1369';
 // export const API_BASE_URL = 'http://localhost:1369';
