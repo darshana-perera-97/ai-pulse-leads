@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { apiFetch } from '../api';
 import SectionPage from './SectionPage';
 
@@ -75,10 +76,6 @@ function Modal({ title, children, onClose, wide = false }) {
 
 function whatsappConnected(wa) {
   return wa?.state === 'ready';
-}
-
-function qrImageUrl(qrString) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrString)}`;
 }
 
 export default function Integration() {
@@ -364,11 +361,12 @@ export default function Integration() {
                   </p>
                   <div className="flex justify-center">
                     <div className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
-                      <img
-                        src={qrImageUrl(waStatus.qr)}
-                        alt="WhatsApp QR code from server"
-                        width={220}
-                        height={220}
+                      <QRCodeSVG
+                        value={waStatus.qr}
+                        size={220}
+                        level="M"
+                        includeMargin
+                        title="WhatsApp QR code from server"
                         className="mx-auto"
                       />
                     </div>
